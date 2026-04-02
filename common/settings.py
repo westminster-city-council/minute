@@ -1,5 +1,6 @@
 import logging
 from functools import lru_cache
+import os
 
 import dotenv
 from pydantic import Field
@@ -18,6 +19,10 @@ if dotenv_detected:
 else:
     logger.info("No .env file was detected. Using environment variables as is")
 
+print("POSTGRES_HOST:", os.getenv("POSTGRES_HOST"))
+print("ALL ENV KEYS:", list(os.environ.keys()))
+for key, value in os.environ.items():
+    print("{key}={value}")
 
 class Settings(BaseSettings):
     POSTGRES_HOST: str = Field(description="PostgreSQL database host")
@@ -55,11 +60,11 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str | None = Field(description="Azure OpenAI API version", default=None)
 
     # if using Gemini
-    GOOGLE_APPLICATION_CREDENTIALS: str | None = Field(
-        description="Path to Google Cloud service account credentials JSON file", default=None
-    )
-    GOOGLE_CLOUD_PROJECT: str | None = Field(description="Google Cloud project ID", default=None)
-    GOOGLE_CLOUD_LOCATION: str | None = Field(description="Google Cloud region/location", default=None)
+    # GOOGLE_APPLICATION_CREDENTIALS: str | None = Field(
+    #     description="Path to Google Cloud service account credentials JSON file", default=None
+    # )
+    # GOOGLE_CLOUD_PROJECT: str | None = Field(description="Google Cloud project ID", default=None)
+    # GOOGLE_CLOUD_LOCATION: str | None = Field(description="Google Cloud region/location", default=None)
 
     # if using LOCALSTACK for development (recommended)
     USE_LOCALSTACK: bool = Field(description="Use LocalStack for local AWS services emulation in dev", default=True)
@@ -93,8 +98,8 @@ class Settings(BaseSettings):
     )
 
     STORAGE_SERVICE_NAME: str = Field(
-        description="Storage service type to use for file uploads. Currently supported are: s3, azure-blob",
-        default="s3",
+        description="Storage service type to use for file uploads. Currently supported are: s3, azure_blob",
+        default="azure_blob",
     )
     # if using s3
     DATA_S3_BUCKET: str | None = Field(description="S3 bucket name for data storage", default=None)
@@ -112,7 +117,7 @@ class Settings(BaseSettings):
 
     QUEUE_SERVICE_NAME: str = Field(
         description="Queue service type to communicate with worker. Currently supported are: sqs, azure-service-bus",
-        default="sqs",
+        default="azure_service_bus",
     )
     # if using azure-service-bus
     AZURE_SB_CONNECTION_STRING: str | None = Field(description="Azure service bus connection string", default=None)
