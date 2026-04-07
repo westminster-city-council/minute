@@ -1,10 +1,15 @@
+import os, time
 import logging
-import os
+from typing import Annotated
 
-import jwt
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
+import httpx
+from fastapi import Depends, Cookie, HTTPException
+from sqlmodel import select
+from jose import jwt, jwk
+from jose.utils import base64url_decode
+
+from backend.api.dependencies.get_session import SQLSessionDep
+from common.database.postgres_models import User
 
 logger = logging.getLogger(__name__)
 
@@ -13,86 +18,117 @@ class AuthorisationError(Exception):
     pass
 
 
-def __convert_to_pem_public_key(key_base64: str) -> RSAPublicKey:
+async def get_jwks_keys(jwks_uri: str) -> dict:
     """
-    Convert Base64 public key to PEM format.
+    Fetches JWKS keys from Azure or any JWKS URI.
     """
-    public_key_pem = f"-----BEGIN PUBLIC KEY-----\n{key_base64}\n-----END PUBLIC KEY-----"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(jwks_uri)
+        resp.raise_for_status()
+        return {key["kid"]: key for key in resp.json()["keys"]}
 
-    return load_pem_public_key(public_key_pem.encode(), backend=default_backend())
 
+def verify_jwt_with_jwks(token: str, jwks_keys: dict, issuer: str, audience: str) -> dict:
+    """
+    Verifies a JWT using a JWKS key based on the token header kid.
+    """
+    headers = jwt.get_unverified_header(token)
+    kid = headers.get("kid")
+    if not kid or kid not in jwks_keys:
+        raise AuthorisationError("Invalid token header or unknown kid")
 
-def __get_decoded_jwt(jwt_token: str, verify_signature: bool) -> dict:
-    """
-    Get JWT payload, optionally validating the JWT signature against a known public key.
-    """
+    key_dict = jwks_keys[kid]
+    # Construct JWK with algorithm explicitly
     try:
-        if verify_signature:
-            public_key_encoded = os.environ.get(
-                "AUTH_PROVIDER_PUBLIC_KEY"
-            )  # This is passed into the environment by ECS
-            pem_public_key = __convert_to_pem_public_key(public_key_encoded)
-        else:
-            pem_public_key = None
-        return jwt.decode(
-            jwt_token,
-            pem_public_key,
-            algorithms=["RS256"],
-            audience="account",
-            options={
-                "verify_signature": verify_signature,
-                "verify_exp": verify_signature,
-            },
-        )
-    except jwt.ExpiredSignatureError:
-        logger.info("User's authentication token has expired.")
-        raise
-    except jwt.InvalidTokenError:
-        logger.exception("Invalid authentication token")
-        raise
+        public_key = jwk.construct(key_dict, algorithm="RS256")
     except Exception as e:
-        error_msg = "Unhanded decoding error"
-        logger.exception(error_msg)
-        raise AuthorisationError(error_msg) from e
+        raise AuthorisationError(f"Failed to construct JWK: {e}")
+
+    # Verify signature
+    message, encoded_signature = token.rsplit(".", 1)
+    decoded_signature = base64url_decode(encoded_signature.encode("utf-8"))
+    if not public_key.verify(message.encode("utf-8"), decoded_signature):
+        raise AuthorisationError("Signature verification failed")
+
+    # Decode claims without verifying signature again
+    claims = jwt.get_unverified_claims(token)
+
+    # Validate standard claims
+    if claims.get("iss") != issuer:
+        raise AuthorisationError(f"Invalid issuer: {claims.get('iss')}")
+    if audience not in claims.get("aud", []):
+        raise AuthorisationError(f"Invalid audience: {claims.get('aud')}")
+    if "exp" in claims and claims["exp"] < int(time.time()):
+        raise AuthorisationError("Token expired")
+
+    return claims
 
 
-def parse_auth_token(auth_header) -> tuple[str, list[str]]:
+async def parse_auth_token(auth_token: str) -> tuple[str, dict]:
     """
-    Takes a Keycloak JWT (auth token) as input and returns the user's email address and associated roles.
-    Use this function to identify the logged-in user, and which roles they are assigned by Keycloak.
-    Also validates that the token has come from Keycloak for security reasons. Validation should
-    always be true unless running locally.
+    Parses and verifies JWT from session_token cookie using JWKS.
+    Returns (email, claims)
     """
+    if not auth_token:
+        logger.error("No auth token provided")
+        raise AuthorisationError("No auth token provided")
 
-    if auth_header is None:
-        error_msg = "No auth token provided to parse."
-        logger.error(error_msg)
-        raise AuthorisationError(error_msg)
+    jwks_uri = os.environ.get("AZURE_JWKS_URI")
+    if not jwks_uri:
+        raise AuthorisationError("JWKS URI not configured")
 
-    verify_jwt_source = not os.environ.get("DISABLE_AUTH_SIGNATURE_VERIFICATION")
-    token_content = __get_decoded_jwt(auth_header, verify_jwt_source)
+    # --- before calling verify_jwt_with_jwks ---
+    tenant_id = os.environ.get("AZURE_TENANT_ID")
+    if not tenant_id:
+        raise AuthorisationError("AZURE_TENANT_ID environment variable is not set")
+    
+    issuer = f"https://login.microsoftonline.com/{tenant_id}/v2.0"
+    
+    audience = os.environ.get("AZURE_CLIENT_ID")
+    if not audience:
+        raise AuthorisationError("AZURE_CLIENT_ID environment variable is not set")
 
-    email = token_content.get("email")
+    jwks_keys = await get_jwks_keys(jwks_uri)
+    claims = verify_jwt_with_jwks(auth_token, jwks_keys, issuer, audience)
+
+    email = claims.get("email")
     if not email:
-        error_msg = "No email found in token"
-        logger.error(error_msg)
-        raise AuthorisationError(error_msg)
+        raise AuthorisationError("No email found in token")
 
-    realm_access = token_content.get("realm_access")
-    if not realm_access:
-        error_msg = "Realm access not found in token"
-        logger.error(error_msg)
-        raise AuthorisationError(error_msg)
-
-    role_names = realm_access.get("roles")
-    logger.debug("Roles for found in token for %s: %s", email, role_names)
-    return email, role_names
+    return email, claims
 
 
-def is_authorised_user(auth_header) -> bool:
+async def get_current_user(
+    session: SQLSessionDep,
+    session_token: Annotated[str | None, Cookie()] = None,
+) -> User:
     """
-    A simple wrapper function to check if the user has the required role to access the resource.
+    FastAPI dependency: reads JWT from cookie, decodes and verifies it using JWKS,
+    and fetches or creates the user.
     """
-    _, roles = parse_auth_token(auth_header)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    return os.environ.get("REPO") in roles
+    try:
+        email, claims = await parse_auth_token(session_token)
+
+        # Lookup existing user
+        statement = select(User).where(User.email == email)
+        user = (await session.exec(statement)).first()
+
+        # Create user if doesn't exist
+        if not user:
+            user = User(email=email)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
+        return user
+
+    except AuthorisationError as e:
+        logger.exception("JWT auth failed")
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+# Alias for FastAPI endpoint injection
+UserDep = Annotated[User, Depends(get_current_user)]

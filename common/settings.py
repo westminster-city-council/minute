@@ -21,8 +21,6 @@ else:
 
 print("POSTGRES_HOST:", os.getenv("POSTGRES_HOST"))
 print("ALL ENV KEYS:", list(os.environ.keys()))
-for key, value in os.environ.items():
-    print("{key}={value}")
 
 class Settings(BaseSettings):
     POSTGRES_HOST: str = Field(description="PostgreSQL database host")

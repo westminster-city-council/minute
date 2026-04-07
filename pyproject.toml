@@ -58,6 +58,7 @@ sentry-sdk = {extras = ["fastapi"], version = "^2.18.0"}
 sqlalchemy = {extras = ["asyncio"], version = "^2.0.42"}
 asyncpg = "^0.30.0"
 markdownify = "^1.2.0"
+python-jose = "3.5.0"
 
 [tool.poetry.group.backend.dependencies]
 fastapi = ">=0.112.0"

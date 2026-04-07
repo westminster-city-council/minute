@@ -2,6 +2,14 @@ import { withSentryConfig } from '@sentry/nextjs'
 
 let nextConfig = {
   output: 'standalone',
+  async rewrites() {
+    return [
+      {
+        source: '/api/proxy/:path*',
+        destination: 'https://minute-backend.bluecoast-5f2f31c3.uksouth.azurecontainerapps.io/:path*',
+      },
+    ]
+  }
 }
 
 const sentryConfig = {

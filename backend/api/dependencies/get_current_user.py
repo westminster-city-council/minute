@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Cookie, HTTPException
 from sqlmodel import select
 
 from backend.api.dependencies.get_session import SQLSessionDep
@@ -11,26 +11,28 @@ from common.database.postgres_models import User
 from common.settings import get_settings
 
 settings = get_settings()
-
 logger = logging.getLogger(__name__)
 
 
 async def get_current_user(
     session: SQLSessionDep,
-    x_amzn_oidc_accesstoken: Annotated[str | None, Header()] = None,
+    session_token: Annotated[str | None, Cookie()] = None,
 ) -> User:
     """
-    Called on every endpoint to decode JWT passed in every request.
-    Gets or creates the user based on the email in the JWT
-    Args:
-        x_amzn_oidc_accesstoken: The incoming JWT from the auth provider, passed via the frontend app
-    Returns:
-        User: The user matching the username in the token
-    """
-    authorization: str | None = x_amzn_oidc_accesstoken
+    FastAPI dependency to get the current user based on JWT passed via
+    'session_token' cookie. If user doesn't exist, it will be created.
 
-    if settings.ENVIRONMENT in ["local", "integration-test"]:
-        # A JWT for local testing, an example JWT from cognito, for user test@test.com
+    Args:
+        session_token: JWT sent from frontend in a cookie
+
+    Returns:
+        User: user object fetched or created in the database
+    """
+
+    authorization: str | None = session_token
+
+    # Local / test JWT for development
+    if settings.ENVIRONMENT in ["local", "integration-test"] and not authorization:
         jwt_dict = {
             "sub": "90429234-4031-7077-b9ba-60d1af121245",
             "aud": "account",
@@ -52,7 +54,7 @@ async def get_current_user(
         authorization = jwt.encode(jwt_dict, "secret", algorithm="HS256", headers=jwt_headers)
 
     if not authorization:
-        logger.info("No authorization header provided")
+        logger.info("No session_token cookie provided")
         raise HTTPException(
             status_code=401,
             detail="Not authenticated",
@@ -60,14 +62,15 @@ async def get_current_user(
         )
 
     try:
-        email, _ = parse_auth_token(authorization)
+        # Extract email and claims
+        email, claims = await parse_auth_token(authorization)
 
         # Try to find existing user
         statement = select(User).where(User.email == email)
         user = (await session.exec(statement)).first()
 
+        # If user doesn't exist, create it
         if not user:
-            # Create new user if doesn't exist
             user = User(email=email)
             session.add(user)
             await session.commit()
@@ -77,11 +80,12 @@ async def get_current_user(
 
     except Exception:
         logger.exception("Failed to decode token")
-        raise HTTPException(  # noqa: B904
+        raise HTTPException(
             status_code=401,
             detail="Failed to decode token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
 
+# Dependency alias for FastAPI endpoints
 UserDep = Annotated[User, Depends(get_current_user)]
