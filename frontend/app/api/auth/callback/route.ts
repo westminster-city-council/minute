@@ -4,6 +4,10 @@ import { jwtVerify, importJWK } from 'jose'
 
 const COOKIE_NAME = 'session_token'
 
+export type JwkKey = {
+  kid: string
+}
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url)
@@ -52,10 +56,17 @@ export async function GET(req: NextRequest) {
     const id_token = tokenData.id_token
 
     // --- Verify JWT ---
+    const decodedHeader = JSON.parse(
+      Buffer.from(id_token.split('.')[0], 'base64').toString()
+    )
+
     const jwksRes = await fetch(process.env.AZURE_JWKS_URI!)
     const jwks = await jwksRes.json()
-    const key = jwks.keys[0]
-    const publicKey = await importJWK(key, 'RS256')
+    const kid = decodedHeader?.kid
+    const keyData = jwks.keys.find((k: JwkKey) => k.kid === kid)
+    if (!keyData) throw new Error('No matching key found in JWKS')
+
+    const publicKey = await importJWK(keyData, 'RS256')
     const { payload } = await jwtVerify(id_token, publicKey, {
       issuer: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/v2.0`,
       audience: process.env.AZURE_CLIENT_ID,

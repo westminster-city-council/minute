@@ -32,3 +32,22 @@ export function isAuthorisedUser(token: string): boolean {
   // 🔥 Minimal rule: must have email
   return true
 }
+
+export function isExpiredToken(token: string): boolean {
+  try {
+    const decoded = decodeJwt(token) as JWTPayload
+
+    // If no exp → treat as invalid/expired (safer)
+    if (!decoded.exp) {
+      return true
+    }
+
+    const now = Date.now()
+    const expiry = decoded.exp * 1000 // convert seconds → ms
+
+    return now >= expiry
+  } catch (err) {
+    console.error('Failed to decode token for expiry check', err)
+    return true // treat invalid tokens as expired
+  }
+}

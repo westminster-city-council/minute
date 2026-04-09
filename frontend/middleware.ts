@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isAuthorisedUser } from '@/lib/auth'
+import { isAuthorisedUser, isExpiredToken } from '@/lib/auth'
 
 const PUBLIC_PATHS = ['/unauthorised', '/health', '/api/auth']
 
@@ -21,6 +21,12 @@ export async function middleware(req: NextRequest) {
   // No token → redirect to login
   if (!token) {
     return redirectToLogin(req)
+  }
+
+  if (isExpiredToken(token)) {
+    const res = redirectToLogin(req)
+    res.cookies.delete('session_token')
+    return res
   }
 
   if (!(await isAuthorisedUser(token))) {
