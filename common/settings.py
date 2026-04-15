@@ -78,21 +78,21 @@ class Settings(BaseSettings):
     FAST_LLM_PROVIDER: str = Field(
         description="Fast LLM provider to use. Currently 'openai' or 'gemini' are supported. Note that this should be "
         "used for low complexity LLM tasks, like AI edits",
-        default="gemini",
+        default="openai",
     )
     FAST_LLM_MODEL_NAME: str = Field(
         description="Fast LLM model name to use. Note that this should be used for low complexity LLM tasks",
-        default="gemini-2.5-flash-lite",
+        default="gpt-5-nano",
     )
     BEST_LLM_PROVIDER: str = Field(
         description="Best LLM provider to use. Currently 'openai' or 'gemini' are supported. Note that this should be "
         "used for higher complexity LLM tasks, like initial minute generation.",
-        default="gemini",
+        default="openai",
     )
     BEST_LLM_MODEL_NAME: str = Field(
         description="Best LLM model name to use. Note that this should be used for higher complexity LLM tasks, like "
         "initial minute generation.",
-        default="gemini-2.5-flash",
+        default="gpt-5-nano",
     )
 
     STORAGE_SERVICE_NAME: str = Field(
