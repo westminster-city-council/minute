@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     )
     FAST_LLM_MODEL_NAME: str = Field(
         description="Fast LLM model name to use. Note that this should be used for low complexity LLM tasks",
-        default="gpt-5-nano",
+        default="gpt-4o-mini",
     )
     BEST_LLM_PROVIDER: str = Field(
         description="Best LLM provider to use. Currently 'openai' or 'gemini' are supported. Note that this should be "
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     BEST_LLM_MODEL_NAME: str = Field(
         description="Best LLM model name to use. Note that this should be used for higher complexity LLM tasks, like "
         "initial minute generation.",
-        default="gpt-5-nano",
+        default="gpt-4o-mini",
     )
 
     STORAGE_SERVICE_NAME: str = Field(
