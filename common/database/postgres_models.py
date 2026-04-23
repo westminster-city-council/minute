@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum, auto
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from uuid import UUID, uuid4
 
 from pydantic import computed_field
@@ -16,6 +16,7 @@ class DialogueEntry(TypedDict):
     text: str
     start_time: float
     end_time: float
+    speaker_confidence: NotRequired[float]
 
 
 # Create factory functions for columns to avoid reusing column objects
